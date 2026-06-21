@@ -1,43 +1,48 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://scripts/player.gd" id="1_player"]
 
-[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]
-radius = 14.0
-height = 28.0
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_body"]
+radius = 0.38
+height = 1.75
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_interact"]
-radius = 55.0
+[sub_resource type="StandardMaterial3D" id="Mat_player"]
+albedo_color = Color(0.18, 0.55, 1.0, 1.0)
 
-[node name="Player" type="CharacterBody2D"]
+[sub_resource type="CapsuleShape3D" id="Shape_player"]
+radius = 0.38
+height = 1.75
+
+[sub_resource type="SphereShape3D" id="Shape_interact"]
+radius = 2.8
+
+[sub_resource type="SphereShape3D" id="Shape_attack"]
+radius = 2.5
+
+[node name="Player" type="CharacterBody3D"]
 collision_layer = 1
-collision_mask = 6
+collision_mask = 14
 script = ExtResource("1_player")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-shape = SubResource("CapsuleShape2D_1")
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 0.875, 0.0)
+mesh = SubResource("CapsuleMesh_body")
+material_override = SubResource("Mat_player")
 
-[node name="Sprite2D" type="Sprite2D" parent="."]
-modulate = Color(0.3, 0.7, 1.0, 1.0)
-scale = Vector2(0.9, 0.9)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0.0, 0.875, 0.0)
+shape = SubResource("Shape_player")
 
-[node name="AnimatedSprite2D" type="AnimatedSprite2D" parent="."]
-
-[node name="InteractArea" type="Area2D" parent="."]
+[node name="InteractArea" type="Area3D" parent="."]
 collision_layer = 0
-collision_mask = 4
+collision_mask = 14
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="InteractArea"]
-shape = SubResource("CircleShape2D_interact")
+[node name="CollisionShape3D" type="CollisionShape3D" parent="InteractArea"]
+position = Vector3(0.0, 0.9, 0.0)
+shape = SubResource("Shape_interact")
 
-[node name="AttackCooldownTimer" type="Timer" parent="."]
-wait_time = 0.6
+[node name="AttackTimer" type="Timer" parent="."]
+wait_time = 0.55
 one_shot = true
 
-[node name="Camera2D" type="Camera2D" parent="."]
-zoom = Vector2(1.5, 1.5)
-position_smoothing_enabled = true
-position_smoothing_speed = 6.0
-drag_horizontal_enabled = true
-drag_vertical_enabled = true
-drag_horizontal_offset = 0.2
+[node name="CameraRig" type="Node3D" parent="."]

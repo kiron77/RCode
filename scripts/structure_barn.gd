@@ -1,67 +1,79 @@
-## structure_barn.gd — Node2D
-## Abandoned barn/house: contains loot crates the player can interact with.
-## Occasionally spawns 1-2 guarding enemies.
-extends Node2D
+## structure_barn.gd — Node3D
+## Procedurally builds an abandoned barn from colored boxes in _ready().
+## Layout: 4 walls + roof + floor + 1-3 gold loot chests inside.
+## Spawns 1 enemy guard outside.
+extends Node3D
 
-@export var loot_count: int = 3
+@export var chest_count: int = 2
 @export var guard_count: int = 1
+@export var chest_scene: PackedScene
 @export var guard_scene: PackedScene
 
-@onready var loot_area:    Area2D  = $LootArea
-@onready var prompt_label: Label   = $PromptLabel
-@onready var sprite:       Sprite2D = $Sprite2D
-
-var _looted: bool = false
-var _player_inside: bool = false
-var _loot_remaining: int = 0
+# Colors
+const WALL_COLOR  := Color(0.48, 0.30, 0.14)  # dark wood brown
+const ROOF_COLOR  := Color(0.30, 0.18, 0.08)  # darker brown
+const FLOOR_COLOR := Color(0.62, 0.52, 0.38)  # dusty wood
 
 func _ready() -> void:
-	_loot_remaining = loot_count
-	prompt_label.visible = false
-	loot_area.connect("body_entered", _on_player_entered)
-	loot_area.connect("body_exited",  _on_player_exited)
+	_build_barn()
+	_place_chests()
 	_spawn_guards()
 
-func _unhandled_input(event: InputEvent) -> void:
-	if _player_inside and not _looted and event.is_action_pressed("interact"):
-		_give_loot()
+func _build_barn() -> void:
+	# Barn dimensions: 8×5×6 (W×H×D in XYZ)
+	var w := 8.0; var h := 5.0; var d := 6.0; var t := 0.4  # wall thickness
 
-func _on_player_entered(body: Node2D) -> void:
-	if body.is_in_group("player"):
-		_player_inside = true
-		if not _looted:
-			prompt_label.visible = true
-			prompt_label.text = "[E] Search Barn (%d items)" % _loot_remaining
+	# Floor
+	_add_box(Vector3(0, -t * 0.5, 0), Vector3(w, t, d), FLOOR_COLOR)
+	# North wall
+	_add_box(Vector3(0, h * 0.5, -d * 0.5), Vector3(w, h, t), WALL_COLOR)
+	# South wall (open gap in middle for doorway)
+	_add_box(Vector3(-w * 0.25, h * 0.5,  d * 0.5), Vector3(w * 0.35, h, t), WALL_COLOR)
+	_add_box(Vector3( w * 0.25, h * 0.5,  d * 0.5), Vector3(w * 0.35, h, t), WALL_COLOR)
+	_add_box(Vector3(0, h - 0.8,           d * 0.5), Vector3(w * 0.28, 1.6, t), WALL_COLOR)  # transom
+	# West wall
+	_add_box(Vector3(-w * 0.5, h * 0.5, 0), Vector3(t, h, d), WALL_COLOR)
+	# East wall
+	_add_box(Vector3( w * 0.5, h * 0.5, 0), Vector3(t, h, d), WALL_COLOR)
+	# Roof (wider to overhang)
+	_add_box(Vector3(0, h + 0.4, 0), Vector3(w + 1.0, 0.5, d + 1.0), ROOF_COLOR)
+	# Roof ridge
+	_add_box(Vector3(0, h + 1.0, 0), Vector3(0.6, 1.2, d + 1.2), ROOF_COLOR)
 
-func _on_player_exited(body: Node2D) -> void:
-	if body.is_in_group("player"):
-		_player_inside = false
-		prompt_label.visible = false
+func _add_box(pos: Vector3, size: Vector3, color: Color) -> void:
+	var sb := StaticBody3D.new()
+	var mi := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = size
+	mi.mesh = bm
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = color
+	mi.material_override = mat
+	var cs := CollisionShape3D.new()
+	var bs := BoxShape3D.new()
+	bs.size = size
+	cs.shape = bs
+	sb.add_child(mi)
+	sb.add_child(cs)
+	sb.position = pos
+	add_child(sb)
 
-func _give_loot() -> void:
-	var item := GameManager.random_barn_loot()
-	var camel := get_tree().get_first_node_in_group("camel")
-	if camel and camel.has_method("add_to_cart"):
-		if camel.add_to_cart(item):
-			_loot_remaining -= 1
-			prompt_label.text = "[E] Search Barn (%d items)" % _loot_remaining
-			if _loot_remaining <= 0:
-				_looted = true
-				prompt_label.text = "Empty"
-				await get_tree().create_timer(1.5).timeout
-				prompt_label.visible = false
-		else:
-			prompt_label.text = "Cart full!"
-	else:
-		# Drop loot for player to manually consume
-		var player := get_tree().get_first_node_in_group("player")
-		if player and player.has_method("consume_item"):
-			player.consume_item(item)
+func _place_chests() -> void:
+	if not chest_scene:
+		return
+	var positions := [Vector3(-2.0, 0.0, -1.5), Vector3(2.0, 0.0, -1.5), Vector3(0.0, 0.0, -1.5)]
+	for i in min(chest_count, positions.size()):
+		var c: Node3D = chest_scene.instantiate()
+		c.position = positions[i]
+		c.loot_source = "barn"
+		add_child(c)
 
 func _spawn_guards() -> void:
 	if not guard_scene:
 		return
-	for _i in guard_count:
-		var g: Node2D = guard_scene.instantiate()
-		g.global_position = global_position + Vector2(randf_range(-60.0, 60.0), randf_range(-40.0, 40.0))
+	for i in guard_count:
+		var g: Node3D = guard_scene.instantiate()
+		var angle := (float(i) / float(guard_count)) * TAU
+		g.position = Vector3(cos(angle) * 7.0, 0.0, sin(angle) * 5.0)
 		get_parent().add_child(g)
+		g.global_position = global_position + g.position

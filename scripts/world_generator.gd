@@ -1,117 +1,160 @@
-## world_generator.gd — Node2D
-## Procedural world: scrolling desert background tiles, roadside structure
-## spawning, and enemy wave management. Attached to WorldGenerator node.
-extends Node2D
+## world_generator.gd — Node3D
+## Scrolling desert with procedural structure + enemy spawning.
+## Scatters cacti (green) and rocks (grey) as environmental props.
+extends Node3D
 
-# ── Timing ────────────────────────────────────────────────────────────────────
-const ENEMY_WAVE_INTERVAL   := 9.0    # seconds between waves
-const STRUCTURE_INTERVAL    := 22.0   # seconds between structures
-const BACKGROUND_TILE_WIDTH := 128.0  # px width of one desert tile
-const TILES_ON_SCREEN       := 12     # how many tiles to keep visible
+# ── Timing ─────────────────────────────────────────────────────────────────────
+const ENEMY_INTERVAL     := 10.0
+const STRUCTURE_INTERVAL := 24.0
+const PROP_INTERVAL      := 3.5
+const CULL_INTERVAL      := 6.0
 
-# ── Spawn offsets from player (right-side screen edge) ────────────────────────
-const STRUCTURE_SPAWN_X_OFFSET := 750.0
-const ENEMY_SPAWN_X_OFFSET     := 500.0
-const STRUCTURE_Y_SPREAD       := 260.0
-const ENEMY_Y_SPREAD           := 220.0
+# ── Spawn parameters ───────────────────────────────────────────────────────────
+const STRUCT_SPAWN_AHEAD  := 55.0   # units ahead of player
+const ENEMY_SPAWN_AHEAD   := 40.0
+const LATERAL_SPREAD      := 18.0   # ±Z spread for structures
+const ENEMY_LATERAL       := 14.0
+const PROP_AHEAD          := 30.0
+const PROP_LATERAL        := 20.0
+const CULL_BEHIND         := 80.0
 
-# ── Enemy density ramp (scales with distance) ─────────────────────────────────
-const ENEMY_COUNT_MIN := 1
-const ENEMY_COUNT_MAX := 4
-const RAMP_DISTANCE   := 2000.0  # after this distance, spawn max enemies
+# ── Difficulty ramp ────────────────────────────────────────────────────────────
+const MIN_ENEMIES := 1
+const MAX_ENEMIES := 5
+const RAMP_AT     := 2500.0   # units until max difficulty
 
-# ── Scenes ────────────────────────────────────────────────────────────────────
-@export var enemy_scene:    PackedScene
-@export var barn_scene:     PackedScene
-@export var oasis_scene:    PackedScene
+# ── Scene references (assigned by Main.tscn or main.gd) ─────────────────────
+@export var enemy_scene:   PackedScene
+@export var barn_scene:    PackedScene
+@export var oasis_scene:   PackedScene
+@export var cactus_scene:  PackedScene
+@export var rock_scene:    PackedScene
 
-# ── Runtime ───────────────────────────────────────────────────────────────────
-var _enemy_timer:     float = ENEMY_WAVE_INTERVAL * 0.5  # first wave sooner
-var _structure_timer: float = STRUCTURE_INTERVAL  * 0.4
-var _bg_tiles:        Array = []
-var _player:          Node2D = null
-var _enemy_container: Node = null
-var _struct_container: Node = null
+# ── Internal ───────────────────────────────────────────────────────────────────
+var _enemy_t:    float = ENEMY_INTERVAL * 0.4
+var _struct_t:   float = STRUCTURE_INTERVAL * 0.5
+var _prop_t:     float = 0.5
+var _cull_t:     float = 0.0
+var _player:     Node3D = null
+var _enemy_cont: Node   = null
+var _struct_cont:Node   = null
+var _prop_cont:  Node   = null
+
+# ── Endless ground tiles ───────────────────────────────────────────────────────
+const TILE_W    := 40.0
+const TILE_D    := 60.0
+const TILE_COUNT := 8
+const GROUND_COLOR := Color(0.82, 0.70, 0.42)   # sand
+var _ground_tiles: Array[MeshInstance3D] = []
 
 func _ready() -> void:
-	_player          = get_tree().get_first_node_in_group("player")
-	_enemy_container  = get_node_or_null("EnemyContainer")  or get_parent().get_node_or_null("EnemyContainer")
-	_struct_container = get_node_or_null("StructContainer") or get_parent().get_node_or_null("StructContainer")
-	_init_background_tiles()
+	_player     = get_tree().get_first_node_in_group("player")
+	_enemy_cont = get_node_or_null("../EnemyContainer")
+	_struct_cont= get_node_or_null("../StructContainer")
+	_prop_cont  = get_node_or_null("../PropContainer")
+	_init_ground()
 
 func _physics_process(delta: float) -> void:
 	if not _player:
+		_player = get_tree().get_first_node_in_group("player")
 		return
-	_scroll_tiles()
-	_enemy_timer -= delta
-	_structure_timer -= delta
+	_scroll_ground()
+	_enemy_t  -= delta
+	_struct_t -= delta
+	_prop_t   -= delta
+	_cull_t   -= delta
+	if _enemy_t  <= 0.0: _enemy_t  = ENEMY_INTERVAL;     _spawn_enemies()
+	if _struct_t <= 0.0: _struct_t = STRUCTURE_INTERVAL;  _spawn_structure()
+	if _prop_t   <= 0.0: _prop_t   = PROP_INTERVAL;       _spawn_prop()
+	if _cull_t   <= 0.0: _cull_t   = CULL_INTERVAL;       _cull_all()
 
-	if _enemy_timer <= 0.0:
-		_enemy_timer = ENEMY_WAVE_INTERVAL
-		_spawn_enemy_wave()
+# ── Endless scrolling ground (X-axis wrap) ─────────────────────────────────────
+func _init_ground() -> void:
+	var mat := StandardMaterial3D.new()
+	mat.albedo_color = GROUND_COLOR
+	for i in TILE_COUNT:
+		var mi  := MeshInstance3D.new()
+		var bm  := BoxMesh.new()
+		bm.size  = Vector3(TILE_W, 0.3, TILE_D)
+		mi.mesh  = bm
+		mi.material_override = mat
+		mi.position = Vector3(i * TILE_W - TILE_W * 2, -0.15, 0.0)
+		add_child(mi)
+		_ground_tiles.append(mi)
 
-	if _structure_timer <= 0.0:
-		_structure_timer = STRUCTURE_INTERVAL
-		_spawn_structure()
-
-# ── Endless desert background ─────────────────────────────────────────────────
-func _init_background_tiles() -> void:
-	for i in TILES_ON_SCREEN:
-		var tile := ColorRect.new()
-		tile.size = Vector2(BACKGROUND_TILE_WIDTH, 800.0)
-		tile.position = Vector2(i * BACKGROUND_TILE_WIDTH - 256.0, -400.0)
-		# Alternate sand shades for visual interest
-		tile.color = Color(0.85 + (i % 2) * 0.05, 0.72 + (i % 3) * 0.02, 0.42, 1.0)
-		add_child(tile)
-		_bg_tiles.append(tile)
-
-func _scroll_tiles() -> void:
-	if not _player:
-		return
-	var cam_x := _player.global_position.x
-	for tile: ColorRect in _bg_tiles:
-		# Wrap tiles to the right when they scroll off screen left
-		if tile.global_position.x + BACKGROUND_TILE_WIDTH < cam_x - 640.0:
-			tile.global_position.x += BACKGROUND_TILE_WIDTH * TILES_ON_SCREEN
+func _scroll_ground() -> void:
+	var px := _player.global_position.x
+	for tile in _ground_tiles:
+		if tile.global_position.x + TILE_W < px - TILE_W:
+			tile.global_position.x += TILE_W * TILE_COUNT
 
 # ── Enemy spawning ─────────────────────────────────────────────────────────────
-func _spawn_enemy_wave() -> void:
-	if not _player or not enemy_scene:
+func _spawn_enemies() -> void:
+	if not enemy_scene or not _player:
 		return
-	var t := clampf(GameManager.run_distance / RAMP_DISTANCE, 0.0, 1.0)
-	var count := int(lerp(float(ENEMY_COUNT_MIN), float(ENEMY_COUNT_MAX), t))
-	var container := _enemy_container if _enemy_container else self
-	for _i in count:
-		var e: Node2D = enemy_scene.instantiate()
-		var side := 1.0 if randf() > 0.5 else -1.0
-		e.global_position = Vector2(
-			_player.global_position.x + ENEMY_SPAWN_X_OFFSET + randf_range(0.0, 200.0),
-			_player.global_position.y + side * randf_range(40.0, ENEMY_Y_SPREAD)
+	var t   := clampf(GameManager.run_distance / RAMP_AT, 0.0, 1.0)
+	var cnt := int(lerp(float(MIN_ENEMIES), float(MAX_ENEMIES), t))
+	var c   := _enemy_cont if _enemy_cont else self
+	for _i in cnt:
+		var e: Node3D = enemy_scene.instantiate()
+		e.global_position = Vector3(
+			_player.global_position.x + ENEMY_SPAWN_AHEAD + randf_range(0.0, 12.0),
+			0.0,
+			_player.global_position.z + randf_range(-ENEMY_LATERAL, ENEMY_LATERAL)
 		)
-		container.add_child(e)
+		c.add_child(e)
 
 # ── Structure spawning ─────────────────────────────────────────────────────────
 func _spawn_structure() -> void:
 	if not _player:
 		return
-	var is_oasis := randf() < 0.18  # 18 % chance for rare oasis
-	var scene := oasis_scene if (is_oasis and oasis_scene) else barn_scene
+	var is_oasis := randf() < 0.18 and oasis_scene != null
+	var scene    := oasis_scene if is_oasis else barn_scene
 	if not scene:
 		return
-	var container := _struct_container if _struct_container else self
-	var structure: Node2D = scene.instantiate()
 	var side := 1.0 if randf() > 0.5 else -1.0
-	structure.global_position = Vector2(
-		_player.global_position.x + STRUCTURE_SPAWN_X_OFFSET,
-		_player.global_position.y + side * randf_range(120.0, STRUCTURE_Y_SPREAD)
+	var s: Node3D = scene.instantiate()
+	s.global_position = Vector3(
+		_player.global_position.x + STRUCT_SPAWN_AHEAD,
+		0.0,
+		_player.global_position.z + side * randf_range(10.0, LATERAL_SPREAD)
 	)
-	container.add_child(structure)
+	var c := _struct_cont if _struct_cont else self
+	c.add_child(s)
 
-# ── Cleanup off-screen nodes (memory management) ──────────────────────────────
-func cull_offscreen(container: Node, margin: float = 800.0) -> void:
+# ── Prop scatter: cacti + rocks ────────────────────────────────────────────────
+func _spawn_prop() -> void:
 	if not _player:
 		return
-	var cam_left := _player.global_position.x - margin
+	var pc := _prop_cont if _prop_cont else self
+	var count := randi_range(1, 3)
+	for _i in count:
+		var is_cactus := randf() < 0.55  # slightly more cacti than rocks
+		var scene := cactus_scene if is_cactus else rock_scene
+		if not scene:
+			continue
+		var side := 1.0 if randf() > 0.5 else -1.0
+		var p: Node3D = scene.instantiate()
+		p.global_position = Vector3(
+			_player.global_position.x + randf_range(8.0, PROP_AHEAD),
+			0.0,
+			_player.global_position.z + side * randf_range(5.0, PROP_LATERAL)
+		)
+		# Random scale variation
+		var s := randf_range(0.7, 1.4)
+		p.scale = Vector3(s, s, s)
+		pc.add_child(p)
+
+# ── Off-screen culling ─────────────────────────────────────────────────────────
+func _cull_all() -> void:
+	if not _player:
+		return
+	for cont in [_enemy_cont, _struct_cont, _prop_cont]:
+		if cont:
+			_cull_container(cont, CULL_BEHIND)
+
+func _cull_container(container: Node, margin: float) -> void:
+	var behind_x := _player.global_position.x - margin
 	for child in container.get_children():
-		if child is Node2D and child.global_position.x < cam_left:
+		if child is Node3D and child.global_position.x < behind_x:
 			child.queue_free()

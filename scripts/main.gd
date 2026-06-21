@@ -1,116 +1,105 @@
-## main.gd — Node2D (Main gameplay scene root)
-## Orchestrates: camel movement, world generation, UI wiring, player death/restart.
-extends Node2D
+## main.gd — Node3D (Main gameplay scene root)
+## Wires all 3D systems: camel march, player mounting, world gen, UI, camera.
+extends Node3D
 
-# ── Scene references (assign in Inspector or auto-found via groups) ─────────
-@export var enemy_scene:    PackedScene
-@export var barn_scene:     PackedScene
-@export var oasis_scene:    PackedScene
+@export var enemy_scene:  PackedScene
+@export var barn_scene:   PackedScene
+@export var oasis_scene:  PackedScene
+@export var cactus_scene: PackedScene
+@export var rock_scene:   PackedScene
 
-# ── Node paths (must match scene tree) ───────────────────────────────────────
-@onready var player:          CharacterBody2D = $Player
-@onready var camel:           CharacterBody2D = $Camel
-@onready var camera:          Camera2D        = $Player/Camera2D
-@onready var survival_ui:     CanvasLayer     = $SurvivalUI
-@onready var world_gen:       Node2D          = $WorldGenerator
-@onready var enemy_container: Node            = $EnemyContainer
-@onready var struct_container:Node            = $StructContainer
+@onready var player:       CharacterBody3D = $Player
+@onready var camel:        CharacterBody3D = $Camel
+@onready var survival_ui:  CanvasLayer     = $SurvivalUI
+@onready var world_gen:    Node3D          = $WorldGenerator
+@onready var enemy_cont:   Node            = $EnemyContainer
+@onready var struct_cont:  Node            = $StructContainer
+@onready var prop_cont:    Node            = $PropContainer
+@onready var sun:          DirectionalLight3D = $Sun
+@onready var camera:       Camera3D        = $CameraRig/Camera3D
+@onready var camera_rig:   Node3D          = $CameraRig
 
-# ── Camel follow offset (player trails camel) ────────────────────────────────
-const PLAYER_CAMEL_LEASH := 300.0   # max distance before camera re-centres
-const CAMEL_PLAYER_OFFSET := Vector2(-120.0, 0.0)  # player starts left of camel
+# Camera follows this smoothed position (between player and camel)
+var _cam_target: Vector3 = Vector3.ZERO
+const CAM_OFFSET := Vector3(-10.0, 18.0, 0.0)
+const CAM_SMOOTH := 7.0
 
 func _ready() -> void:
 	_apply_selected_camel()
-	_wire_ui_signals()
-	_wire_player_signals()
+	_wire_signals()
 	_init_world_gen()
-	# Position player near camel
-	player.global_position = camel.global_position + CAMEL_PLAYER_OFFSET
+	# Start camera at camel position
+	_cam_target = camel.global_position
 
-func _physics_process(delta: float) -> void:
+func _process(delta: float) -> void:
+	_update_camera(delta)
 	_update_run_info()
-	_cull_offscreen_nodes()
 
-# ── Initialisation helpers ────────────────────────────────────────────────────
-func _apply_selected_camel() -> void:
-	var data := GameManager.selected_camel
-	if data.is_empty():
-		# Fallback: brown camel for direct scene testing
-		data = {"id": "brown", "color": Color(0.6, 0.4, 0.2), "speed_mod": 1.0, "label": "Brown Camel", "rarity": "Common"}
-	camel.apply_variant(data)
-	camel.is_selected = true
-	# Restore any inventory from GameManager (e.g. future run-carry feature)
-	for item in GameManager.current_inventory:
-		camel.add_to_cart(item)
+func _update_camera(delta: float) -> void:
+	# Smoothly track midpoint between player and camel
+	var mid := player.global_position.lerp(camel.global_position, 0.45)
+	_cam_target = _cam_target.lerp(mid, CAM_SMOOTH * delta)
+	camera_rig.global_position = _cam_target + CAM_OFFSET
+	camera_rig.look_at(_cam_target + Vector3(5.0, 0.0, 0.0), Vector3.UP)
 
-func _wire_ui_signals() -> void:
-	# SurvivalUI → Player
-	survival_ui.connect("mobile_move_changed",   _on_mobile_move)
-	survival_ui.connect("mobile_sprint_changed",  _on_mobile_sprint)
-	survival_ui.connect("mobile_attack_pressed",  _on_mobile_attack)
-	survival_ui.connect("mobile_interact_pressed",_on_mobile_interact)
-	survival_ui.connect("restart_requested",      _on_restart_requested)
-	# Camel → UI inventory refresh
-	camel.connect("inventory_changed", survival_ui.refresh_inventory)
-
-func _wire_player_signals() -> void:
-	player.connect("stats_changed", _on_player_stats_changed)
-	player.connect("player_died",   _on_player_died)
-
-func _init_world_gen() -> void:
-	if world_gen:
-		if enemy_scene:   world_gen.enemy_scene  = enemy_scene
-		if barn_scene:    world_gen.barn_scene   = barn_scene
-		if oasis_scene:   world_gen.oasis_scene  = oasis_scene
-
-# ── Per-frame HUD update ──────────────────────────────────────────────────────
 func _update_run_info() -> void:
-	var camel_lbl: String = camel.variant_data.get("label", "Camel") if not camel.variant_data.is_empty() else "Camel"
+	var camel_text := camel.variant_data.get("label", "Camel") if not camel.variant_data.is_empty() else "Camel"
 	survival_ui.update_run_info(
 		GameManager.run_distance,
 		GameManager.run_kills,
-		camel_lbl,
-		camel.get_cart_weight_ratio()
+		camel_text,
+		camel.get_cart_weight_ratio(),
+		player.is_mounted
 	)
 
-# ── Offscreen culling (keeps memory lean on long runs) ────────────────────────
-var _cull_timer: float = 0.0
-const CULL_INTERVAL := 5.0
+# ── Initialisation ─────────────────────────────────────────────────────────────
+func _apply_selected_camel() -> void:
+	var data := GameManager.selected_camel
+	if data.is_empty():
+		data = {"id": "brown", "color": Color(0.6, 0.4, 0.2),
+				"speed_mod": 1.0, "label": "Brown Camel", "rarity": "Common"}
+	camel.apply_variant(data)
+	camel.is_selected = true
+	# Restore saved cart from prior run (future feature hook)
+	for item in GameManager.current_inventory:
+		camel.add_to_cart(item)
 
-func _cull_offscreen_nodes() -> void:
-	_cull_timer += get_physics_process_delta_time()
-	if _cull_timer < CULL_INTERVAL:
-		return
-	_cull_timer = 0.0
+func _wire_signals() -> void:
+	# Player stats → UI
+	player.connect("stats_changed", survival_ui.update_stats)
+	player.connect("player_died",   _on_player_died)
+	player.connect("camel_distance_danger", survival_ui.set_camel_danger)
+	# Mobile input → player
+	survival_ui.connect("mobile_move_changed",    func(v): player.mobile_move = v)
+	survival_ui.connect("mobile_sprint_changed",  func(a): player.mobile_sprint = a)
+	survival_ui.connect("mobile_attack_pressed",  func():  player.mobile_attack = true)
+	survival_ui.connect("mobile_interact_pressed",_on_mobile_interact)
+	survival_ui.connect("restart_requested",      _on_restart)
+	# Camel inventory → UI
+	camel.connect("inventory_changed", survival_ui.refresh_inventory)
+
+func _init_world_gen() -> void:
 	if world_gen:
-		world_gen.cull_offscreen(enemy_container,  900.0)
-		world_gen.cull_offscreen(struct_container, 1000.0)
+		world_gen.enemy_scene  = enemy_scene
+		world_gen.barn_scene   = barn_scene
+		world_gen.oasis_scene  = oasis_scene
+		world_gen.cactus_scene = cactus_scene
+		world_gen.rock_scene   = rock_scene
 
-# ── Signal handlers: mobile input ─────────────────────────────────────────────
-func _on_mobile_move(vec: Vector2) -> void:
-	player.mobile_move = vec
-
-func _on_mobile_sprint(active: bool) -> void:
-	player.mobile_sprint = active
-
-func _on_mobile_attack() -> void:
-	player.mobile_attack = true
-
-func _on_mobile_interact() -> void:
-	# Simulate 'interact' action press for one frame
-	Input.action_press("interact")
-	await get_tree().process_frame
-	Input.action_release("interact")
-
-# ── Signal handlers: player stats ─────────────────────────────────────────────
-func _on_player_stats_changed(hp: float, hunger: float, thirst: float, stamina: float) -> void:
-	survival_ui.update_stats(hp, hunger, thirst, stamina)
-
+# ── Signal handlers ────────────────────────────────────────────────────────────
 func _on_player_died() -> void:
-	camel.is_selected = false  # stop camel march
+	camel.is_selected = false
 	GameManager.current_inventory = camel.cart_inventory.duplicate(true)
 	survival_ui.show_death_screen(GameManager.run_distance, GameManager.run_kills)
 
-func _on_restart_requested() -> void:
+func _on_mobile_interact() -> void:
+	if player.is_mounted:
+		player.dismount()
+	else:
+		# Simulate interact action for one physics frame
+		Input.action_press("interact")
+		await get_tree().physics_frame
+		Input.action_release("interact")
+
+func _on_restart() -> void:
 	GameManager.go_to_stable()

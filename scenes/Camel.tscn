@@ -1,38 +1,106 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=15 format=3]
 
 [ext_resource type="Script" path="res://scripts/camel.gd" id="1_camel"]
 
-[sub_resource type="CapsuleShape2D" id="CapsuleShape2D_1"]
-radius = 22.0
-height = 50.0
+[sub_resource type="CapsuleMesh" id="Mesh_body"]
+radius = 0.65
+height = 2.4
 
-[sub_resource type="CircleShape2D" id="CircleShape2D_interact"]
-radius = 70.0
+[sub_resource type="SphereMesh" id="Mesh_head"]
+radius = 0.42
+height = 0.84
 
-[node name="Camel" type="CharacterBody2D"]
+[sub_resource type="CapsuleMesh" id="Mesh_neck"]
+radius = 0.22
+height = 1.2
+
+[sub_resource type="SphereMesh" id="Mesh_hump"]
+radius = 0.36
+height = 0.55
+
+[sub_resource type="StandardMaterial3D" id="Mat_camel_default"]
+albedo_color = Color(0.60, 0.40, 0.20, 1.0)
+
+[sub_resource type="BoxMesh" id="Mesh_cart"]
+size = Vector3(1.8, 0.9, 1.2)
+
+[sub_resource type="StandardMaterial3D" id="Mat_cart"]
+albedo_color = Color(0.35, 0.22, 0.10, 1.0)
+
+[sub_resource type="BoxMesh" id="Mesh_wheel"]
+size = Vector3(0.12, 0.5, 0.5)
+
+[sub_resource type="StandardMaterial3D" id="Mat_wheel"]
+albedo_color = Color(0.18, 0.12, 0.06, 1.0)
+
+[sub_resource type="CapsuleShape3D" id="Shape_camel"]
+radius = 0.65
+height = 2.4
+
+[sub_resource type="SphereShape3D" id="Shape_interact"]
+radius = 3.5
+
+[node name="Camel" type="CharacterBody3D"]
 collision_layer = 2
-collision_mask = 5
+collision_mask = 13
 script = ExtResource("1_camel")
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
-shape = SubResource("CapsuleShape2D_1")
+[node name="BodyMesh" type="MeshInstance3D" parent="."]
+position = Vector3(0.0, 1.2, 0.0)
+mesh = SubResource("Mesh_body")
+material_override = SubResource("Mat_camel_default")
 
-[node name="Sprite2D" type="Sprite2D" parent="."]
-modulate = Color(0.6, 0.4, 0.2, 1.0)
-scale = Vector2(1.4, 1.4)
+[node name="NeckMesh" type="MeshInstance3D" parent="."]
+position = Vector3(0.55, 2.0, 0.0)
+rotation = Vector3(0.0, 0.0, -0.4)
+mesh = SubResource("Mesh_neck")
+material_override = SubResource("Mat_camel_default")
 
-[node name="NameLabel" type="Label" parent="."]
-position = Vector2(-60.0, -70.0)
-size = Vector2(120.0, 24.0)
-horizontal_alignment = 1
+[node name="HeadMesh" type="MeshInstance3D" parent="."]
+position = Vector3(1.0, 2.6, 0.0)
+mesh = SubResource("Mesh_head")
+material_override = SubResource("Mat_camel_default")
+
+[node name="HumpMesh" type="MeshInstance3D" parent="."]
+position = Vector3(-0.1, 2.05, 0.0)
+mesh = SubResource("Mesh_hump")
+material_override = SubResource("Mat_camel_default")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+position = Vector3(0.0, 1.2, 0.0)
+shape = SubResource("Shape_camel")
+
+[node name="MountPoint" type="Node3D" parent="."]
+position = Vector3(0.0, 2.55, 0.0)
+
+[node name="CartAnchor" type="Node3D" parent="."]
+position = Vector3(-1.8, 0.0, 0.0)
+
+[node name="CartMesh" type="MeshInstance3D" parent="CartAnchor"]
+position = Vector3(0.0, 0.55, 0.0)
+mesh = SubResource("Mesh_cart")
+material_override = SubResource("Mat_cart")
+
+[node name="WheelL" type="MeshInstance3D" parent="CartAnchor"]
+position = Vector3(0.0, 0.3, 0.7)
+mesh = SubResource("Mesh_wheel")
+material_override = SubResource("Mat_wheel")
+
+[node name="WheelR" type="MeshInstance3D" parent="CartAnchor"]
+position = Vector3(0.0, 0.3, -0.7)
+mesh = SubResource("Mesh_wheel")
+material_override = SubResource("Mat_wheel")
+
+[node name="NameLabel3D" type="Label3D" parent="."]
+position = Vector3(0.0, 3.3, 0.0)
+pixel_size = 0.012
 text = "Camel"
+font_size = 18
 
-[node name="InteractArea" type="Area2D" parent="."]
+[node name="InteractArea" type="Area3D" parent="."]
 collision_layer = 0
 collision_mask = 1
 
-[node name="CollisionShape2D" type="CollisionShape2D" parent="InteractArea"]
-shape = SubResource("CircleShape2D_interact")
-
-[node name="CartAnchor" type="Node2D" parent="."]
-position = Vector2(-50.0, 10.0)
+[node name="CollisionShape3D" type="CollisionShape3D" parent="InteractArea"]
+position = Vector3(0.0, 1.2, 0.0)
+shape = SubResource("Shape_interact")

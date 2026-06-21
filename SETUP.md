@@ -1,167 +1,202 @@
-# DeadRails Desert Survival — Godot 4 Setup Guide
+# DeadRails Desert Survival — Godot 4 (3D) Setup Guide
 
 ## Requirements
-- **Godot Engine 4.2+** (download from godotengine.org)
-- Web export template installed (Project → Export → Manage Export Templates)
+- **Godot Engine 4.2+** — download from godotengine.org
+- Web export templates (Project → Export → Manage Export Templates)
 
 ---
 
-## Scene Tree Reference
+## Placeholder Color Key
+Every entity is a colored capsule/box. Swap for real meshes later.
+
+| Color | Hex approx | Entity |
+|-------|-----------|--------|
+| **Cyan-Blue** `#2E8CFF` | Player |
+| **Tan/Brown** `#996633` | Brown Camel (Common 50%) |
+| **Ivory** `#F2F2E6` | White Camel (Rare 10%) |
+| **Near-Black** `#1F1A1A` | Black Camel (Uncommon 25%) |
+| **Burnt Orange** `#E6800F` | Orange Camel (Common 15%) |
+| **Dark Red** `#CC1A1A` | Desert Brawler Enemy |
+| **Cactus Green** `#269426` | Cacti props |
+| **Mid Grey** `#858585` | Rock props |
+| **Sand** `#D1B36B` | Ground tiles (endless scrolling) |
+| **Gold** `#FFBf00` | Loot Chests (openable) |
+| **Dark Wood** `#59360F` | Barn walls, roof, cart body |
+| **Sandstone** `#B89E73` | Oasis temple ruins |
+| **Pale Blue** `#2A8CE6` | Oasis water pool |
+| **Palm Green** `#1E941E` | Palm tree leaves |
+| **Tan Trunk** `#8C6033` | Palm tree trunks |
+| **Yellow** `#E0BF33` | Hay bales (stable) |
+
+---
+
+## Scene Tree (3D)
 
 ### `Stable.tscn` (entry point)
 ```
-Stable (Node2D)          ← stable.gd
-├── Background           (ColorRect — sandy floor)
-├── StableFloor          (ColorRect — darker dirt)
-├── StableWalls          (ColorRect)
-├── Player               (instance: Player.tscn)
+Stable (Node3D)              ← stable.gd (builds geometry in _ready)
+├── Sun (DirectionalLight3D)
+├── WorldEnvironment
+├── Player (CharacterBody3D) ← Player.tscn
 └── UI (CanvasLayer)
-    ├── StartLabel       (Label)
-    ├── TipLabel         (Label)
-    └── TitleLabel       (Label)
+    ├── StartLabel / TipLabel / TitleLabel
 ```
-`camel_scene` export var → assign **Camel.tscn** in Inspector.
-Camels are spawned procedurally at runtime at positions `[-160, 0, 160]` on the X axis.
+**Inspector**: assign `camel_scene = Camel.tscn`, `player_scene = Player.tscn`
+Stable walls, floor, roof, hay bales, and stall dividers are built in code.
+Three random-variant camels are spawned at X offsets -5, 0, +5.
 
 ---
 
 ### `Main.tscn` (gameplay)
 ```
-Main (Node2D)             ← main.gd
-├── WorldGenerator        (Node2D) ← world_generator.gd
-│   └── StructContainer / EnemyContainer (Node2D, children)
-├── StructContainer       (Node2D)  ← structure instances go here
-├── EnemyContainer        (Node2D)  ← enemy instances go here
-├── Camel                 (instance: Camel.tscn)
-│   └── CartAnchor        (Node2D — visual cart attachment point)
-├── Player                (instance: Player.tscn)
-│   └── Camera2D          (follows player, zoom 1.5×)
-└── SurvivalUI            (instance: ui/SurvivalUI.tscn)
+Main (Node3D)                ← main.gd
+├── Sun (DirectionalLight3D)
+├── WorldEnvironment
+├── CameraRig (Node3D)       ← follows midpoint of player+camel
+│   └── Camera3D             (FOV 55, angled down ~40°)
+├── WorldGenerator (Node3D)  ← world_generator.gd
+├── EnemyContainer (Node3D)
+├── StructContainer (Node3D)
+├── PropContainer (Node3D)
+├── Camel (CharacterBody3D)  ← Camel.tscn, starts at X=3
+├── Player (CharacterBody3D) ← Player.tscn, starts at X=-1.5
+└── SurvivalUI (CanvasLayer) ← ui/SurvivalUI.tscn
 ```
-**Export vars on Main node** (set in Inspector):
-- `enemy_scene` → `EnemyBrawler.tscn`
-- `barn_scene`  → `structures/Barn.tscn`
-- `oasis_scene` → `structures/Oasis.tscn`
+**Inspector export vars on Main node**:
+- `enemy_scene`  → `EnemyBrawler.tscn`
+- `barn_scene`   → `structures/Barn.tscn`
+- `oasis_scene`  → `structures/Oasis.tscn`
+- `cactus_scene` → `props/Cactus.tscn`
+- `rock_scene`   → `props/Rock.tscn`
 
 ---
 
-### `Player.tscn`
+### `Player.tscn` (CharacterBody3D, layer 1)
 ```
-Player (CharacterBody2D)  ← player.gd
-│  collision_layer = 1 | collision_mask = 6 (camel + enemy)
-├── CollisionShape2D      (CapsuleShape2D r=14 h=28)
-├── Sprite2D              (placeholder blue rect — swap with spritesheet)
-├── AnimatedSprite2D      (animations: idle, walk, sprint, death)
-├── InteractArea (Area2D) mask=4 (structs/camels)
-│   └── CollisionShape2D  (CircleShape2D r=55)
-├── AttackCooldownTimer   (Timer, one_shot=true, 0.6s)
-└── Camera2D              (zoom 1.5×, position smoothing 6.0)
+Player
+├── MeshInstance3D     (CapsuleMesh, CYAN-BLUE — the player)
+├── CollisionShape3D   (CapsuleShape3D)
+├── InteractArea       (Area3D, radius 2.8 — mount/loot range)
+│   └── CollisionShape3D
+├── AttackTimer        (Timer, 0.55s one-shot)
+└── CameraRig          (Node3D — Camera3D added here by Main scene)
+```
+
+### `Camel.tscn` (CharacterBody3D, layer 2)
+```
+Camel
+├── BodyMesh    (CapsuleMesh, variant color)
+├── NeckMesh    (CapsuleMesh, variant color)
+├── HeadMesh    (SphereMesh, variant color)
+├── HumpMesh    (SphereMesh, variant color)
+├── CollisionShape3D
+├── MountPoint  (Node3D at Y=2.55 — player sits here when mounted)
+├── CartAnchor  (Node3D at X=-1.8)
+│   ├── CartMesh  (BoxMesh, dark wood)
+│   ├── WheelL / WheelR (BoxMesh, darker brown)
+├── NameLabel3D (Label3D above camel showing variant info)
+└── InteractArea (Area3D, radius 3.5 — player presses E to mount)
+```
+
+### `EnemyBrawler.tscn` (CharacterBody3D, layer 4)
+```
+EnemyBrawler
+├── MeshInstance3D  (CapsuleMesh, RED)
+├── CollisionShape3D
+└── HPLabel3D       (Label3D above head)
+```
+
+### Props
+```
+Cactus (StaticBody3D, layer 8)
+├── TrunkMesh   (CylinderMesh, GREEN)
+├── ArmLeft / ArmRight  (CylinderMesh, GREEN, rotated)
+└── CollisionShape3D
+
+Rock (StaticBody3D, layer 8)
+├── MeshInstance3D  (BoxMesh, GREY)
+└── CollisionShape3D
+
+LootChest (StaticBody3D, layer 8)  ← loot_chest.gd
+├── BaseMesh        (BoxMesh, GOLD)
+├── LidPivot (Node3D)  ← lid rotates on X when opened
+│   ├── LidMesh     (BoxMesh, GOLD)
+│   └── LatchMesh   (BoxMesh, darker gold)
+├── CollisionShape3D
+├── InteractArea    (Area3D)
+└── PromptLabel3D   (Label3D "[E] Open Chest")
 ```
 
 ---
 
-### `Camel.tscn`
-```
-Camel (CharacterBody2D)   ← camel.gd
-│  collision_layer = 2 | collision_mask = 5
-├── CollisionShape2D      (CapsuleShape2D r=22 h=50)
-├── Sprite2D              (tinted by variant color at runtime)
-├── NameLabel             (Label — shows variant name above camel)
-├── InteractArea (Area2D) (radius 70, detects player)
-│   └── CollisionShape2D
-└── CartAnchor            (Node2D — visual harness point)
-```
+## Mounting System
+- Walk near camel → its `InteractArea` overlaps player
+- Press **E** → `player.mount(camel)` called
+  - `is_mounted = true`, player's collision layer disabled
+  - Every physics frame: `player.global_position = camel.MountPoint.global_position`
+  - Player rides on top of the camel while it marches
+- Press **E** again → `player.dismount()` → ejected 2.5 units to the side
+- **Mobile**: MOUNT/DISMOUNT button in the bottom-right cluster
+
+## Camel Leash / Distance System
+If the player gets more than **28 units** behind the camel, they take **8 HP/sec** damage
+and a red "RETURN TO CAMEL" banner flashes at the top of the HUD. Sprint to catch up!
 
 ---
 
-### `EnemyBrawler.tscn`
-```
-EnemyBrawler (CharacterBody2D)  ← enemy_brawler.gd
-│  collision_layer = 4 | collision_mask = 3
-├── CollisionShape2D      (CapsuleShape2D r=14 h=26)
-├── Sprite2D              (red tint)
-├── AnimatedSprite2D
-├── HPBar                 (ProgressBar, offset above head)
-└── DetectionArea         (Area2D, r=320)
-    └── CollisionShape2D
-```
+## Collision Layers (3D)
+| Layer | Bit | Entity |
+|-------|-----|--------|
+| 1  | 0001 | Player |
+| 2  | 0010 | Camel |
+| 3  | 0100 | Enemies |
+| 4  | 1000 | Static environment |
+
+Player mask = 14 (0b1110) → camel + enemies + statics  
+Enemy mask  =  3 (0b0011) → player + camel  
+Statics mask= 0 (blocks only, no active detection)  
 
 ---
 
-## Collision Layers
-| Layer | Bit | Used by |
-|-------|-----|---------|
-| 1 | 0b0001 | Player |
-| 2 | 0b0010 | Camel |
-| 3 | 0b0100 | Structures / interactive areas |
-| 4 | 0b1000 | Enemies |
-
-Player mask = 6 (0b0110) → collides with camel + enemies  
-Enemy mask  = 3 (0b0011) → collides with player + camel  
-
----
-
-## Input Map (project.godot)
+## Input Map
 | Action | Key |
 |--------|-----|
-| move_left  | A |
-| move_right | D |
-| move_up    | W |
-| move_down  | S |
-| sprint     | Left Shift |
-| interact   | E |
-| attack     | Left Mouse Button |
+| move_left / right / up / down | WASD |
+| sprint | Left Shift |
+| interact | E (mount/dismount/loot) |
+| attack | Left Mouse Button |
 | inventory_toggle | I |
 
 ---
 
-## Camel Variant Probability Table
-| Variant | Weight | Cumulative | Speed Mod |
-|---------|--------|------------|-----------|
-| White   | 10     | 0–9        | ×1.30 (Fastest) |
-| Black   | 25     | 10–34      | ×1.15 |
-| Brown   | 50     | 35–84      | ×1.00 (Normal) |
-| Orange  | 15     | 85–99      | ×0.85 (Slowest) |
+## Camel Variant Table
+| Variant | Roll | Speed | Cart at 20 slots |
+|---------|------|-------|-----------------|
+| White (Rare 10%) | 0–9 | ×1.30 | ×0.78 effective |
+| Black (Uncommon 25%) | 10–34 | ×1.15 | ×0.69 effective |
+| Brown (Common 50%) | 35–84 | ×1.00 | ×0.60 effective |
+| Orange (Common 15%) | 85–99 | ×0.85 | ×0.51 → clamped to ×0.60 |
+
+Cart penalty: –10% per 5 items, minimum 60% of base.
 
 ---
 
-## Cart Weight Penalty
-| Items in cart | Speed penalty |
-|---------------|--------------|
-| 0–4  | 0%  (full variant speed) |
-| 5–9  | –10% |
-| 10–14 | –20% |
-| 15–19 | –30% |
-| 20 (full) | –40% → clamped at 60% of base |
+## Web Export
+1. Project → Export → Add Preset → Web
+2. Install templates if prompted
+3. Export All → `exports/web/index.html`
+4. Serve via HTTPS or localhost only (SharedArrayBuffer requirement)
+   ```
+   python3 -m http.server 8080
+   ```
+   Then visit `http://localhost:8080/exports/web/`
 
 ---
 
-## Web Export Steps
-1. Open project in Godot 4
-2. Project → Export → Add → Web
-3. Install export templates if prompted
-4. Set output path: `exports/web/index.html`
-5. Export All (or use `export_presets.cfg` already committed)
-6. Serve `exports/web/` via any HTTP server (e.g. `python3 -m http.server`)
-   - **Must use HTTPS or localhost** — SharedArrayBuffer requires cross-origin isolation
-
----
-
-## Adding Sprite Sheets
-Replace placeholder `Sprite2D` nodes with `AnimatedSprite2D` sheets:
-- Player: 4-dir walk cycle, idle, sprint, death
-- Camel: walk right (auto-march) + idle
-- Enemy: walk + attack wind-up
-
-The scripts already call `anim_sprite.play("idle"|"walk"|"sprint"|"death"|"run")` —
-just ensure your `SpriteFrames` resource uses those exact animation names.
-
----
-
-## Mobile Controls
-The `SurvivalUI.tscn` mobile overlay auto-shows when:
-```gdscript
-DisplayServer.is_touchscreen_available() or OS.has_feature("web") or OS.has_feature("mobile")
-```
-Virtual joystick bottom-left → routes to `player.mobile_move`  
-Sprint / Attack / [E] / CART buttons → bottom-right cluster
+## Replacing Placeholder Meshes
+To swap in real art later:
+1. Open the relevant `.tscn` in Godot editor
+2. Select the `MeshInstance3D` node
+3. Replace `mesh` property with your `GLB/GLTF` mesh
+4. Remove `material_override` (use the mesh's own materials)
+The scripts are mesh-agnostic — only groups and node paths matter.

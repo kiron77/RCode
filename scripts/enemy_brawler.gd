@@ -1,168 +1,187 @@
-## enemy_brawler.gd — CharacterBody2D
-## Desert Brawler: melee AI enemy that tracks and punches the player.
-## State machine: PATROL → CHASE → ATTACK → STUNNED
-extends CharacterBody2D
+## enemy_brawler.gd — CharacterBody3D
+## Desert Brawler: PATROL → CHASE → ATTACK state machine.
+## Tracks player in 3D, melee punch with velocity-based knockback + stagger.
+extends CharacterBody3D
 
 # ── Stats ──────────────────────────────────────────────────────────────────────
-const MAX_HP           := 60.0
-const MOVE_SPEED       := 85.0
-const DETECTION_RANGE  := 320.0
-const ATTACK_RANGE     := 48.0
-const ATTACK_DAMAGE    := 15.0
-const KNOCKBACK_FORCE  := 420.0   # pixels/sec burst applied to player
-const ATTACK_COOLDOWN  := 1.6     # seconds between punches
-const PATROL_SPEED     := 40.0
-const PATROL_RANGE     := 80.0    # wander distance from spawn
-const FRICTION         := 8.0
+const MAX_HP          := 65.0
+const MOVE_SPEED      := 4.5
+const PATROL_SPEED    := 2.0
+const PATROL_RANGE    := 5.0
+const DETECT_RANGE    := 22.0
+const CHASE_LOSE_DIST := 28.0
+const ATTACK_RANGE    := 1.9
+const ATTACK_DAMAGE   := 15.0
+const KNOCKBACK_FORCE := 12.0   # units/s burst
+const ATTACK_COOLDOWN := 1.5
+const GRAVITY         := 24.0
+const FRICTION        := 11.0
 
-# ── State machine ─────────────────────────────────────────────────────────────
-enum AIState { PATROL, CHASE, ATTACK, DEAD }
+# ── AI states ─────────────────────────────────────────────────────────────────
+enum AIState { PATROL, CHASE, ATTACK, STAGGER, DEAD }
 var ai_state: AIState = AIState.PATROL
 
 var hp:           float   = MAX_HP
 var attack_timer: float   = 0.0
-var is_dead:      bool    = false
-var spawn_pos:    Vector2 = Vector2.ZERO
-var patrol_dir:   Vector2 = Vector2.RIGHT
+var stagger_timer:float   = 0.0
 var patrol_timer: float   = 0.0
-
-# ── Target ────────────────────────────────────────────────────────────────────
-var target: Node2D = null
+var patrol_dir:   Vector3 = Vector3.RIGHT
+var spawn_pos:    Vector3 = Vector3.ZERO
+var is_dead:      bool    = false
 
 # ── Node refs ─────────────────────────────────────────────────────────────────
-@onready var sprite: Sprite2D = $Sprite2D
-@onready var anim:   AnimatedSprite2D = $AnimatedSprite2D
-@onready var hp_bar: ProgressBar = $HPBar
+@onready var mesh_instance: MeshInstance3D = $MeshInstance3D
+@onready var hp_label:      Label3D        = $HPLabel3D
+
+# ── Target ────────────────────────────────────────────────────────────────────
+var target: Node3D = null
 
 # ── Signals ───────────────────────────────────────────────────────────────────
-signal died(world_position)
-signal dealt_damage(amount, target_node)
+signal died(pos: Vector3)
 
 func _ready() -> void:
 	add_to_group("enemy")
-	spawn_pos = global_position
-	hp_bar.max_value = MAX_HP
-	hp_bar.value = MAX_HP
-	_find_target()
-	# Random patrol direction
-	patrol_dir = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized()
+	spawn_pos   = global_position
+	patrol_dir  = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
+	_refresh_target()
+	if hp_label:
+		hp_label.text = "HP: %d" % int(MAX_HP)
 
 func _physics_process(delta: float) -> void:
 	if is_dead:
-		velocity = velocity.lerp(Vector2.ZERO, FRICTION * delta)
+		velocity = velocity.lerp(Vector3.ZERO, FRICTION * delta)
+		if not is_on_floor():
+			velocity.y -= GRAVITY * delta
 		move_and_slide()
 		return
 
-	attack_timer = maxf(0.0, attack_timer - delta)
+	if not is_on_floor():
+		velocity.y -= GRAVITY * delta
+
+	attack_timer  = maxf(0.0, attack_timer - delta)
+	stagger_timer = maxf(0.0, stagger_timer - delta)
 	_refresh_target()
 	_run_ai(delta)
 	move_and_slide()
 
-# ── Target acquisition ────────────────────────────────────────────────────────
-func _find_target() -> void:
-	target = get_tree().get_first_node_in_group("player")
-
 func _refresh_target() -> void:
 	if target == null or not is_instance_valid(target):
-		_find_target()
+		target = get_tree().get_first_node_in_group("player")
 
-# ── AI state machine ──────────────────────────────────────────────────────────
 func _run_ai(delta: float) -> void:
-	if target == null:
-		_patrol(delta)
-		return
-
-	var dist := global_position.distance_to(target.global_position)
-
 	match ai_state:
 		AIState.PATROL:
-			_patrol(delta)
-			if dist <= DETECTION_RANGE:
-				_enter_chase()
+			_do_patrol(delta)
+			if target and _flat_dist(target) <= DETECT_RANGE:
+				_enter_state(AIState.CHASE)
 
 		AIState.CHASE:
-			_chase(delta, dist)
-			if dist > DETECTION_RANGE * 1.2:
-				ai_state = AIState.PATROL
+			if not target:
+				_enter_state(AIState.PATROL)
+				return
+			var d := _flat_dist(target)
+			if d <= ATTACK_RANGE:
+				_enter_state(AIState.ATTACK)
+			elif d > CHASE_LOSE_DIST:
+				_enter_state(AIState.PATROL)
+			else:
+				_move_toward(target.global_position, MOVE_SPEED, delta)
 
 		AIState.ATTACK:
-			velocity = velocity.lerp(Vector2.ZERO, FRICTION * delta)
-			if dist > ATTACK_RANGE * 1.5:
-				ai_state = AIState.CHASE
-			elif attack_timer <= 0.0:
+			_brake(delta)
+			if not target or _flat_dist(target) > ATTACK_RANGE * 1.6:
+				_enter_state(AIState.CHASE)
+				return
+			if attack_timer <= 0.0:
 				_punch()
 
-func _patrol(delta: float) -> void:
+		AIState.STAGGER:
+			_brake(delta)
+			if stagger_timer <= 0.0:
+				_enter_state(AIState.CHASE)
+
+func _do_patrol(delta: float) -> void:
 	patrol_timer -= delta
 	if patrol_timer <= 0.0:
-		patrol_dir = Vector2(randf_range(-1.0, 1.0), randf_range(-1.0, 1.0)).normalized()
-		patrol_timer = randf_range(1.5, 3.5)
-
-	var target_pos := spawn_pos + patrol_dir * PATROL_RANGE
-	var dir := (target_pos - global_position).normalized()
-	if global_position.distance_to(target_pos) < 8.0:
-		velocity = velocity.lerp(Vector2.ZERO, FRICTION * delta)
+		patrol_dir  = Vector3(randf_range(-1.0, 1.0), 0.0, randf_range(-1.0, 1.0)).normalized()
+		patrol_timer = randf_range(1.8, 3.5)
+	var dst := spawn_pos + patrol_dir * PATROL_RANGE
+	if global_position.distance_to(dst) < 0.5:
+		_brake(delta)
 	else:
-		velocity = velocity.move_toward(dir * PATROL_SPEED, 400.0 * delta)
+		_move_toward(dst, PATROL_SPEED, delta)
 
-func _enter_chase() -> void:
-	ai_state = AIState.CHASE
-	if anim:
-		anim.play("run") if anim.sprite_frames.has_animation("run") else null
+func _move_toward(pos: Vector3, spd: float, delta: float) -> void:
+	var dir := (pos - global_position)
+	dir.y = 0.0
+	dir = dir.normalized()
+	var h := Vector3(velocity.x, 0.0, velocity.z)
+	h = h.move_toward(dir * spd, spd * 6.0 * delta)
+	velocity.x = h.x
+	velocity.z = h.z
+	# Face target
+	if dir.length() > 0.01:
+		global_transform.basis = global_transform.basis.slerp(Basis.looking_at(dir, Vector3.UP), 12.0 * delta)
 
-func _chase(delta: float, dist: float) -> void:
-	if dist <= ATTACK_RANGE:
-		ai_state = AIState.ATTACK
-		return
-	var dir := (target.global_position - global_position).normalized()
-	velocity = velocity.move_toward(dir * MOVE_SPEED, 500.0 * delta)
-	# Flip sprite
-	if sprite and dir.x != 0.0:
-		sprite.flip_h = dir.x < 0.0
+func _brake(delta: float) -> void:
+	var h := Vector3(velocity.x, 0.0, velocity.z)
+	h = h.lerp(Vector3.ZERO, FRICTION * delta)
+	velocity.x = h.x
+	velocity.z = h.z
+
+func _enter_state(s: AIState) -> void:
+	ai_state = s
 
 func _punch() -> void:
 	attack_timer = ATTACK_COOLDOWN
-	if target == null or not is_instance_valid(target):
+	if not target or not is_instance_valid(target):
 		return
-	# Visual punch wind-up flash
-	modulate = Color(1.0, 0.6, 0.0)
-	var tw := create_tween()
-	tw.tween_property(self, "modulate", Color.WHITE, 0.15)
-
+	# Wind-up flash orange
+	if mesh_instance:
+		mesh_instance.modulate = Color(1.2, 0.6, 0.1)
+		var tw := create_tween()
+		tw.tween_property(mesh_instance, "modulate", Color.WHITE, 0.2)
 	if target.has_method("take_damage"):
 		target.take_damage(ATTACK_DAMAGE)
-		emit_signal("dealt_damage", ATTACK_DAMAGE, target)
-
 	if target.has_method("apply_knockback"):
-		var knockback_dir := (target.global_position - global_position).normalized()
-		target.apply_knockback(knockback_dir, KNOCKBACK_FORCE)
+		var dir := (target.global_position - global_position)
+		dir.y = 0.0
+		target.apply_knockback(dir.normalized(), KNOCKBACK_FORCE)
 
-# ── Receiving damage ──────────────────────────────────────────────────────────
+func _flat_dist(node: Node3D) -> float:
+	var d := global_position - node.global_position
+	d.y = 0.0
+	return d.length()
+
+# ── Receiving damage & knockback ───────────────────────────────────────────────
 func take_damage(amount: float) -> void:
 	if is_dead:
 		return
 	hp = maxf(0.0, hp - amount)
-	hp_bar.value = hp
-
-	# Hit flash
-	modulate = Color(1.0, 0.25, 0.25)
-	var tw := create_tween()
-	tw.tween_property(self, "modulate", Color.WHITE, 0.2)
-
+	if hp_label:
+		hp_label.text = "HP: %d" % int(hp)
+	if mesh_instance:
+		mesh_instance.modulate = Color(1.0, 0.2, 0.2)
+		var tw := create_tween()
+		tw.tween_property(mesh_instance, "modulate", Color.WHITE, 0.18)
 	if hp <= 0.0:
 		_die()
 
-## Apply knockback FROM player attack
-func apply_knockback(direction: Vector2, force: float) -> void:
-	velocity += direction.normalized() * force
+func apply_knockback(dir: Vector3, force: float) -> void:
+	if is_dead:
+		return
+	var kd := dir
+	kd.y = 0.0
+	velocity += kd.normalized() * force
+	# Enter stagger
+	_enter_state(AIState.STAGGER)
+	stagger_timer = 0.35
 
 func _die() -> void:
 	is_dead = true
-	ai_state = AIState.DEAD
-	set_collision_layer_value(3, false)  # disable enemy collision layer
+	set_collision_layer_value(3, false)
 	emit_signal("died", global_position)
 	GameManager.run_kills += 1
-
 	var tw := create_tween()
-	tw.tween_property(self, "modulate:a", 0.0, 0.6)
+	tw.tween_property(self, "scale", Vector3(1.0, 0.05, 1.0), 0.5)
 	tw.tween_callback(queue_free)
