@@ -1,0 +1,34 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Script"      path="res://scripts/main.gd"                    id="1_main"]
+[ext_resource type="Script"      path="res://scripts/world_generator.gd"          id="2_wgen"]
+[ext_resource type="PackedScene" path="res://scenes/Player.tscn"                 id="3_player"]
+[ext_resource type="PackedScene" path="res://scenes/Camel.tscn"                  id="4_camel"]
+[ext_resource type="PackedScene" path="res://scenes/ui/SurvivalUI.tscn"           id="5_ui"]
+[ext_resource type="PackedScene" path="res://scenes/EnemyBrawler.tscn"            id="6_enemy"]
+[ext_resource type="PackedScene" path="res://scenes/structures/Barn.tscn"         id="7_barn"]
+[ext_resource type="PackedScene" path="res://scenes/structures/Oasis.tscn"        id="8_oasis"]
+
+[node name="Main" type="Node2D"]
+script = ExtResource("1_main")
+enemy_scene = ExtResource("6_enemy")
+barn_scene  = ExtResource("7_barn")
+oasis_scene = ExtResource("8_oasis")
+
+[node name="WorldGenerator" type="Node2D" parent="."]
+script = ExtResource("2_wgen")
+enemy_scene = ExtResource("6_enemy")
+barn_scene  = ExtResource("7_barn")
+oasis_scene = ExtResource("8_oasis")
+
+[node name="StructContainer" type="Node2D" parent="."]
+
+[node name="EnemyContainer" type="Node2D" parent="."]
+
+[node name="Camel" parent="." instance=ExtResource("4_camel")]
+position = Vector2(100.0, 0.0)
+
+[node name="Player" parent="." instance=ExtResource("3_player")]
+position = Vector2(-20.0, 0.0)
+
+[node name="SurvivalUI" parent="." instance=ExtResource("5_ui")]

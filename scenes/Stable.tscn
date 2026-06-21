@@ -1,0 +1,59 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/stable.gd" id="1_stable"]
+[ext_resource type="PackedScene" path="res://scenes/Player.tscn" id="2_player"]
+[ext_resource type="PackedScene" path="res://scenes/Camel.tscn" id="3_camel"]
+
+[node name="Stable" type="Node2D"]
+script = ExtResource("1_stable")
+camel_scene = ExtResource("3_camel")
+
+[node name="Background" type="ColorRect" parent="."]
+offset_left = -1280.0
+offset_top = -720.0
+offset_right = 1280.0
+offset_bottom = 720.0
+color = Color(0.82, 0.70, 0.42, 1.0)
+
+[node name="StableFloor" type="ColorRect" parent="."]
+offset_left = -400.0
+offset_top = -50.0
+offset_right = 400.0
+offset_bottom = 150.0
+color = Color(0.55, 0.42, 0.28, 1.0)
+
+[node name="StableWalls" type="ColorRect" parent="."]
+offset_left = -420.0
+offset_top = -160.0
+offset_right = 420.0
+offset_bottom = -50.0
+color = Color(0.45, 0.30, 0.18, 1.0)
+
+[node name="Player" parent="." instance=ExtResource("2_player")]
+position = Vector2(0.0, 180.0)
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="StartLabel" type="Label" parent="UI"]
+layout_mode = 0
+position = Vector2(400.0, 30.0)
+size = Vector2(480.0, 40.0)
+horizontal_alignment = 1
+text = "Choose your camel — approach and press [E]"
+theme_override_font_sizes/font_size = 18
+
+[node name="TipLabel" type="Label" parent="UI"]
+layout_mode = 0
+position = Vector2(400.0, 680.0)
+size = Vector2(480.0, 30.0)
+horizontal_alignment = 1
+text = "WASD / Joystick to move"
+theme_override_font_sizes/font_size = 14
+
+[node name="TitleLabel" type="Label" parent="UI"]
+layout_mode = 0
+position = Vector2(340.0, 580.0)
+size = Vector2(600.0, 60.0)
+horizontal_alignment = 1
+text = "DEADRAILS: DESERT SURVIVAL"
+theme_override_font_sizes/font_size = 28
